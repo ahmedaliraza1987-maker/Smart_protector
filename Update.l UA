@@ -1,0 +1,1232 @@
+require "import"
+import "android.widget.*"
+import "android.view.*"
+import "android.app.*"
+import "android.content.*"
+import "android.hardware.*"
+import "android.media.*"
+import "android.os.*"
+import "android.graphics.*"
+import "android.graphics.drawable.*"
+import "android.speech.tts.*"
+import "java.io.File"
+
+-- ==============================================================================
+-- [[ SMART PROTECTOR 3.0 - MULTI-LANGUAGE SECURITY UTILITY ENGINE ]]
+-- ==============================================================================
+_G.prefs = service.getSharedPreferences("SP_BACKGROUND_UNIQUE_PHRASES_V45", 0)
+local sensorManager = service.getSystemService(Context.SENSOR_SERVICE)
+local audioManager = service.getSystemService(Context.AUDIO_SERVICE)
+local vibrator = service.getSystemService(Context.VIBRATOR_SERVICE)
+local powerManager = service.getSystemService(Context.POWER_SERVICE)
+local mainHandler = Handler(Looper.getMainLooper())
+
+local soundFolderPath = "/storage/emulated/0/è§£è¯´/Plugins/Smart protector/voice/"
+local defaultSoundPath = soundFolderPath .. "Loud Alarm Sound Effect(MP3_160K).mp3"
+
+local wrongPinCounter = 0
+
+pcall(function()
+  local folder = File(soundFolderPath)
+  if not folder.exists() then folder.mkdirs() end
+end)
+
+local soundEffectsList = {
+  { displayName = "Alarm (Default)", fileName = "Loud Alarm Sound Effect(MP3_160K).mp3" },
+  { displayName = "Don't touch my phone", fileName = "Don't touch my phone.mp3" },
+  { displayName = "Unsave", fileName = "Unsave.mp3" }, 
+  { displayName = "Warning", fileName = "Warning.mp3" },
+  { displayName = "Siren", fileName = "ðŸš‘ LOUD Ambulance Siren â€“ Emergency in Action_ ðŸš¨ðŸ”¥ _soundeffect(MP3_160K).mp3" },
+  { displayName = "Security", fileName = "Security Alert Sound ðŸ”Š Emergency Siren in Hall(MP3_160K).mp3" },
+  { displayName = "Rescue", fileName = "Rescue 1122_ a very efficient Ambulance service in Pakistan(MP3_160K).mp3" }
+}
+
+_G.isAlerting = _G.isAlerting or false
+_G.isPinPadOpen = _G.isPinPadOpen or false
+_G.isSecEnabled = _G.isSecEnabled or false
+_G.isProximityBlocked = _G.isProximityBlocked or false
+_G.isChargingActive = _G.isChargingActive or false
+
+_G.currentUiState = "NONE" 
+local globalDialog = nil
+_G.currentReason = _G.currentReason or "motion"
+local wakeLock = nil
+
+local autoActiveRunnable = nil
+local previewPlayer = nil 
+local currentPlayingIndex = nil
+
+-- [TTS ENGINE]
+local ttsEngine = nil
+local function initTts()
+  if ttsEngine == nil then
+    pcall(function()
+      ttsEngine = TextToSpeech(service, TextToSpeech.OnInitListener({
+        onInit = function(status) end
+      }))
+    end)
+  end
+end
+initTts()
+
+local function bgSpeak(text)
+  mainHandler.post(Runnable({
+    run = function()
+      if ttsEngine ~= nil then
+        pcall(function() ttsEngine.speak(text, TextToSpeech.QUEUE_FLUSH, nil, "SmartProtectorTTS") end)
+      else
+         pcall(function() service.speak(text, 1) end)
+      end
+    end
+  }))
+end
+
+-- ==================== [UNIQUE UI DESIGN GENERATORS] ====================
+local function getUniqueBackground()
+  local gd = GradientDrawable()
+  gd.setColor(0xFF111622) 
+  gd.setCornerRadius(40) 
+  gd.setStroke(3, 0xFF2196F3) 
+  return gd
+end
+
+local function applyUniqueButtonTheme(btn, color)
+  local gd = GradientDrawable()
+  gd.setColor(color or 0xFF2196F3)
+  gd.setCornerRadius(20)
+  btn.setBackground(gd)
+  btn.setTextColor(0xFFFFFFFF)
+end
+
+-- ==================== [LANGUAGES (ENGLISH, URDU, HINDI)] ====================
+local function getL()
+  local lang = _G.prefs.getString("lang", "English")
+  local T = {
+    English = {
+      title="Smart Protector 3.0", use_sp="Use Smart Protector", sets="Settings", ex="Exit", ab="About App", 
+      new_feat="New Features",
+      new_feat_btn="New Features in Smart Protector",
+      s_en="Your system is secured now.", 
+      s_dis="Security protection disabled.", 
+      snd_al="Sound Alert", vib_al="Vib Alert", max_v="Max Volume Lock", use_lock="Use On Lock Screen", chg_p="Use Charging Protection", vol_chn="Volume Channel", vol_med="Media", vol_rng="Ringtone", vol_alm="Alarm", chg_lng="Change Language", chg_pwd="Change PIN", save="SAVE", ok="OK", wrg="Wrong PIN", set_p="SET PIN", ent_p="ENTER PIN", 
+      p_cls="Your smart protector is now closed.", 
+      prox_warn="Remove hand from sensor!", 
+      chg_en="Charging protection system initiated.", 
+      chg_unl="Security protection disabled.", 
+      sel_ln="Select Language", f_autoact="Auto-Active While Not Using", sel_dur="Select Duration",
+      cust_snd_sw="Use Custom Sound", cust_snd_btn="Choose Custom Sound File", sel_fx_btn="Select Sound Effect",
+      
+      -- English About Text
+      abt_text="What is Smart Protector 3.0?\nIt is an advanced hardware-interlocked security utility designed to safeguard your smartphone from theft, unauthorized access, and physical tampering.\n\nHow does it work?\n1. Motion Detection: Utilizes the built-in Accelerometer Sensor. If anyone moves or picks up your device while armed, the aggressive siren triggers instantly.\n2. Proximity Shield: Monitors the Proximity Sensor. If someone attempts to slip the device out of your pocket or covers the top screen, it flags an alert.\n3. Power Interlock: Watches the battery charging cycle. If the charger is unplugged without entering the secure PIN, a critical alarm rings out.\n\nYour permanent, personal digital bodyguard.",
+      
+      -- English New Features Text
+      feat_text="â˜… NEW FEATURES IN SMART PROTECTOR â˜…\n\n" ..
+                "1. Smart Lockout & Black Screen:\n" ..
+                "Entering a wrong PIN 3 times completely blacks out the display and triggers a mandatory 30-second security lockdown countdown to prevent brute-force attacks.\n\n" ..
+                "2. Dynamic Lock Icon:\n" ..
+                "A clean holographic Lock graphic (ðŸ”’) appears dynamically over the blackout screen along with a persistent seconds counter.\n\n" ..
+                "3. Advanced Auto-Activation:\n" ..
+                "If the device remains untouched for your set duration (1 to 5 mins), the guard arms automatically.\n\n" ..
+                "4. High-Fidelity Integrated Sirens:\n" ..
+                "Includes multiple customized emergency audio alerts including 'Alarm (Default)', ambulance signals, and unique anti-theft loops.\n\n" ..
+                "5. External Storage Custom Audio:\n" ..
+                "Allows browsing internal paths directly to map any localized .mp3 or .wav asset as your dedicated primary siren."
+    },
+    Urdu = {
+      title="Ø³Ù…Ø§Ø±Ù¹ Ù¾Ø±ÙˆÙ¹ÛŒÚ©Ù¹Ø± 3.0", use_sp="Ù¾Ø±ÙˆÙ¹ÛŒÚ©Ù¹Ø± Ø¢Ù† Ú©Ø±ÛŒÚº", sets="Ø³ÛŒÙ¹Ù†Ú¯Ø²", ex="Ø¨Ù†Ø¯ Ú©Ø±ÛŒÚº", ab="Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø§ÛŒÙ¾", 
+      new_feat="Ù†Ø¦Û’ ÙÛŒÚ†Ø±Ø²",
+      new_feat_btn="Ø³Ù…Ø§Ø±Ù¹ Ù¾Ø±ÙˆÙ¹ÛŒÚ©Ù¹Ø± Ú©Û’ Ù†Ø¦Û’ ÙÛŒÚ†Ø±Ø²",
+      s_en="Your system is secured now.", 
+      s_dis="Security protection disabled.", 
+      snd_al="Ø¢ÙˆØ§Ø² Ø§Ù„Ø±Ù¹", vib_al="ÙˆØ§Ø¦Ø¨Ø±ÛŒØ´Ù† Ø§Ù„Ø±Ù¹", 
+      max_v="Ù…ÛŒÚ©Ø³ ÙˆØ§Ù„ÛŒÙˆÙ… Ù„Ø§Ú©", 
+      use_lock="Ù„Ø§Ú© Ø§Ø³Ú©Ø±ÛŒÙ† Ù¾Ø±", 
+      chg_p="Ú†Ø§Ø±Ø¬Ù†Ú¯ Ù¾Ø±ÙˆÙ¹ÛŒÚ©Ø´Ù† Ù¾Ø± Ø§Ø³ØªØ¹Ù…Ø§Ù„ Ú©Ø±ÛŒÚº", 
+      vol_chn="ÙˆØ§Ù„ÛŒÙˆÙ… Ú†ÛŒÙ†Ù„", vol_med="Media", vol_rng="Ringtone", vol_alm="Alarm", 
+      chg_lng="Ø²Ø¨Ø§Ù† ØªØ¨Ø¯ÛŒÙ„ Ú©Ø±ÛŒÚº", 
+      chg_pwd="Ù¾Ù† ØªØ¨Ø¯ÛŒÙ„ Ú©Ø±ÛŒÚº", 
+      save="Ù…Ø­ÙÙˆØ¸ Ú©Ø±ÛŒÚº", 
+      ok="Ù¹Ú¾ÛŒÚ© ÛÛ’", wrg="ØºÙ„Ø· Ù¾Ù†", set_p="Ù¾Ù† Ø³ÛŒÙ¹ Ú©Ø±ÛŒÚº", ent_p="Ù¾Ù† Ø¯Ø±Ø¬ Ú©Ø±ÛŒÚº", 
+      p_cls="Your smart protector is now closed.", 
+      prox_warn="Ø³ÛŒÙ†Ø³Ø± Ø³Û’ ÛØ§ØªÚ¾ ÛÙ¹Ø§Ø¦ÛŒÚº!", 
+      chg_en="Charging protection system initiated.", 
+      chg_unl="Security protection disabled.", 
+      sel_ln="Ø²Ø¨Ø§Ù† Ù…Ù†ØªØ®Ø¨ Ú©Ø±ÛŒÚº", f_autoact="Ø§Ø³ØªØ¹Ù…Ø§Ù„ Ù†Û ÛÙˆÙ†Û’ Ù¾Ø± Ø®ÙˆØ¯Ú©Ø§Ø± Ø§ÛŒÚ©Ù¹Ùˆ", sel_dur="ÙˆÙ‚Øª Ù…Ù†ØªØ®Ø¨ Ú©Ø±ÛŒÚº",
+      cust_snd_sw="Ú©Ø³Ù¹Ù… Ø¢ÙˆØ§Ø² Ø§Ø³ØªØ¹Ù…Ø§Ù„ Ú©Ø±ÛŒÚº", cust_snd_btn="Ú©Ø³Ù¹Ù… Ø¢ÚˆÛŒÙˆ ÙØ§Ø¦Ù„ Ù…Ù†ØªØ®Ø¨ Ú©Ø±ÛŒÚº", sel_fx_btn="Ø³Ø§Ø¤Ù†Úˆ Ø§ÛŒÙÛŒÚ©Ù¹ Ù…Ù†ØªØ®Ø¨ Ú©Ø±ÛŒÚº",
+      
+      -- Urdu About Text
+      abt_text="Ø³Ù…Ø§Ø±Ù¹ Ù¾Ø±ÙˆÙ¹ÛŒÚ©Ù¹Ø± 3.0 Ú©ÛŒØ§ ÛÛ’ØŸ\nÛŒÛ Ø§ÛŒÚ© Ø¬Ø¯ÛŒØ¯ ÛØ§Ø±ÚˆÙˆÛŒØ¦Ø± Ø³ÛŒÚ©ÛŒÙˆØ±Ù¹ÛŒ Ø§ÛŒÙ¾ ÛÛ’ Ø¬Ùˆ Ø¢Ù¾ Ú©Û’ Ø§Ø³Ù…Ø§Ø±Ù¹ ÙÙˆÙ† Ú©Ùˆ Ú†ÙˆØ±ÛŒØŒ ØºÛŒØ± Ù…Ø¬Ø§Ø² Ø§Ø³ØªØ¹Ù…Ø§Ù„ØŒ Ø§ÙˆØ± ÛØ§ØªÚ¾ Ù„Ú¯Ø§Ù†Û’ Ø³Û’ Ù…Ø­ÙÙˆØ¸ Ø±Ú©Ú¾Ù†Û’ Ú©Û’ Ù„ÛŒÛ’ Ø¨Ù†Ø§Ø¦ÛŒ Ú¯Ø¦ÛŒ ÛÛ’Û”\n\nÛŒÛ Ú©ÛŒØ³Û’ Ú©Ø§Ù… Ú©Ø±ØªØ§ ÛÛ’ØŸ\n1Û” Ù…ÙˆØ´Ù† ÚˆÛŒÚˆÚ©Ø´Ù†: ÛŒÛ ÙÙˆÙ† Ú©Û’ Ø§ÛŒÚ©Ø³Ù„Ø±ÙˆÙ…ÛŒÙ¹Ø± Ø³ÛŒÙ†Ø³Ø± Ú©Ø§ Ø§Ø³ØªØ¹Ù…Ø§Ù„ Ú©Ø±ØªØ§ ÛÛ’Û” Ø§Ú¯Ø± Ú©ÙˆØ¦ÛŒ Ø¢Ù¾ Ú©Û’ ÙÙˆÙ† Ú©Ùˆ Ø§Ù¹Ú¾Ø§Ù†Û’ ÛŒØ§ ÛÙ„Ø§Ù†Û’ Ú©ÛŒ Ú©ÙˆØ´Ø´ Ú©Ø±Û’ Ú¯Ø§ØŒ ØªÙˆ ÙÙˆØ±Ø§Ù‹ ÛØ§Ø¦ÛŒ ÙˆØ§Ù„ÛŒÙˆÙ… Ø³Ø§Ø¦Ø±Ù† Ø¨Ø¬ Ø§Ù¹Ú¾Û’ Ú¯Ø§Û”\n2Û” Ù¾Ø±ÙˆÚ©Ø³ÛŒÙ…ÛŒÙ¹ÛŒ Ø´ÛŒÙ„Úˆ: ÛŒÛ Ø¬ÛŒØ¨ ÛŒØ§ Ø§Ù†Ø¯Ú¾ÛŒØ±Û’ Ú©ÛŒ Ù†Ú¯Ø±Ø§Ù†ÛŒ Ú©Ø±ØªØ§ ÛÛ’Û” Ø§Ú¯Ø± Ú©ÙˆØ¦ÛŒ ÙÙˆÙ† Ú©Ùˆ Ø¬ÛŒØ¨ Ø³Û’ Ù†Ú©Ø§Ù„Ù†Û’ ÛŒØ§ Ø³ÛŒÙ†Ø³Ø± Ù¾Ø± ÛØ§ØªÚ¾ Ø±Ú©Ú¾Ù†Û’ Ú©ÛŒ Ú©ÙˆØ´Ø´ Ú©Ø±Û’ Ú¯Ø§ ØªÙˆ ÛŒÛ Ø§Ù„Ø±Ù¹ Ú©Ø± Ø¯Û’ Ú¯Ø§Û”\n3Û” Ú†Ø§Ø±Ø¬Ù†Ú¯ Ø§Ù†Ù¹Ø±Ù„Ø§Ú©: Ø§Ú¯Ø± Ú†Ø§Ø±Ø¬Ø± Ù„Ú¯Ø§ ÛÙˆ Ø§ÙˆØ± Ú©ÙˆØ¦ÛŒ Ø¨ØºÛŒØ± Ù¾Ù† Ú©ÙˆÚˆ ÚˆØ§Ù„Û’ Ú†Ø§Ø±Ø¬Ø± Ø§ØªØ§Ø±Û’ Ú¯Ø§ØŒ ØªÙˆ Ø³Ø³Ù¹Ù… Ø§Ø³Û’ Ú†ÙˆØ±ÛŒ Ø³Ù…Ø¬Ú¾ Ú©Ø± Ø§ÛŒÙ…Ø±Ø¬Ù†Ø³ÛŒ Ø³Ø§Ø¦Ø±Ù† Ø§ÛŒÚ©Ù¹Ùˆ Ú©Ø± Ø¯Û’ Ú¯Ø§Û”\n\nØ¢Ù¾ Ú©Ø§ Ù…Ø³ØªÙ‚Ù„ Ø§ÙˆØ± Ù‚Ø§Ø¨Ù„ Ø§Ø¹ØªÙ…Ø§Ø¯ ÚˆÛŒØ¬ÛŒÙ¹Ù„ Ø¨Ø§ÚˆÛŒ Ú¯Ø§Ø±ÚˆÛ”",
+      
+      -- Urdu New Features Text
+      feat_text="â˜… Ø³Ù…Ø§Ø±Ù¹ Ù¾Ø±ÙˆÙ¹ÛŒÚ©Ù¹Ø± Ú©Û’ Ù†Ø¦Û’ ÙÛŒÚ†Ø±Ø² â˜…\n\n" ..
+                "1Û” Ø¨Ù„ÛŒÚ© Ø§Ø³Ú©Ø±ÛŒÙ† Ø§ÙˆØ± Ù„Ø§Ú© Ø¢Ø¤Ù¹ Ù¹Ø§Ø¦Ù…Ø±:\n" ..
+                "Ø§Ú¯Ø± Ú©ÙˆØ¦ÛŒ Ù„Ú¯Ø§ØªØ§Ø± 3 Ø¨Ø§Ø± ØºÙ„Ø· Ù¾Ù† Ø¯Ø±Ø¬ Ú©Ø±Û’ Ú¯Ø§ØŒ ØªÙˆ Ø§Ø³Ú©Ø±ÛŒÙ† Ù…Ú©Ù…Ù„ Ú©Ø§Ù„ÛŒ ÛÙˆ Ø¬Ø§Ø¦Û’ Ú¯ÛŒ Ø§ÙˆØ± Ø³ÛŒÚ©ÛŒÙˆØ±Ù¹ÛŒ Ú©ÛŒ Ø®Ø§Ø·Ø± 30 Ø³ÛŒÚ©Ù†Úˆ Ú©Ø§ Ø§Ù„Ù¹ÛŒ Ú¯Ù†ØªÛŒ Ú©Ø§ Ù¹Ø§Ø¦Ù…Ø± Ø´Ø±ÙˆØ¹ ÛÙˆ Ø¬Ø§Ø¦Û’ Ú¯Ø§Û”\n\n" ..
+                "2Û” Ù„Ø§Ú© Ø¢Ø¦ÛŒÚ©Ù† (ðŸ”’):\n" ..
+                "Ø¨Ù„ÛŒÚ© Ø§Ø³Ú©Ø±ÛŒÙ† Ú©Û’ Ø¨Ø§Ù„Ú©Ù„ Ø¯Ø±Ù…ÛŒØ§Ù† Ù…ÛŒÚº Ø§ÛŒÚ© Ø®ÙˆØ¨ØµÙˆØ±Øª Ø³ÛŒÚ©ÛŒÙˆØ±Ù¹ÛŒ Ù„Ø§Ú© Ú©Ø§ Ù†Ø´Ø§Ù† Ø§ÙˆØ± Ù„Ø§Ø¦ÛŒÙˆ Ø³ÛŒÚ©Ù†ÚˆØ² Ú†Ù„ÛŒÚº Ú¯Û’ ØªØ§Ú©Û Ø§Ø³Ú©Ø±ÛŒÙ† Ù…Ø­ÙÙˆØ¸ Ø±ÛÛ’Û”\n\n" ..
+                "3Û” Ø®ÙˆØ¯Ú©Ø§Ø± Ø§ÛŒÚ©Ù¹ÛŒÙˆÛŒØ´Ù† (Auto-Active):\n" ..
+                "Ø§Ú¯Ø± ÙÙˆÙ† Ù…Ù‚Ø±Ø±Û ÙˆÙ‚Øª (1 Ø³Û’ 5 Ù…Ù†Ù¹) ØªÚ© Ø§Ø³ØªØ¹Ù…Ø§Ù„ Ù†Û ÛÙˆ Ø±ÛØ§ ÛÙˆØŒ ØªÙˆ Ø³ÛŒÚ©ÛŒÙˆØ±Ù¹ÛŒ Ú¯Ø§Ø±Úˆ Ø®ÙˆØ¯ Ø¨Ø®ÙˆØ¯ Ø¨ØºÛŒØ± Ú©ÛÛ’ Ø¢Ù† ÛÙˆ Ø¬Ø§ØªØ§ ÛÛ’Û”\n\n" ..
+                "4Û” Ù†Ø¦Û’ Ø§Ù„Ø±Ù¹ Ø³Ø§Ø¦Ø±Ù†Ø²:\n" ..
+                "Ø§Ø³ Ù…ÛŒÚº 'Alarm (Default)' Ú©Û’ Ø³Ø§ØªÚ¾ Ø³Ø§ØªÚ¾ Ø§ÛŒÙ…Ø¨ÙˆÙ„ÛŒÙ†Ø³ØŒ ÙˆØ§Ø±Ù†Ù†Ú¯ Ø§ÙˆØ± ÚˆÙˆÙ†Ù¹ Ù¹Ú† Ù…Ø§Ø¦ÛŒ ÙÙˆÙ† Ø¬ÛŒØ³Û’ Ø´Ø§Ù†Ø¯Ø§Ø± Ø³Ø§Ø¦Ù†Ø³ÛŒ Ø¢ÙˆØ§Ø²ÛŒÚº Ù¾ÛÙ„Û’ Ø³Û’ Ù…ÙˆØ¬ÙˆØ¯ ÛÛŒÚºÛ”\n\n" ..
+                "5Û” Ú©Ø³Ù¹Ù… Ø¢ÚˆÛŒÙˆ ÙØ§Ø¦Ù„ Ø³Ù¾ÙˆØ±Ù¹:\n" ..
+                "Ø¢Ù¾ Ù…ÛŒÙ…ÙˆØ±ÛŒ Ú©Ø§Ø±Úˆ ÛŒØ§ Ø§Ù†Ù¹Ø±Ù†Ù„ Ø³Ù¹ÙˆØ±ÛŒØ¬ Ø³Û’ Ø§Ù¾Ù†ÛŒ Ù¾Ø³Ù†Ø¯ Ú©Ø§ Ú©ÙˆØ¦ÛŒ Ø¨Ú¾ÛŒ Ú¯Ø§Ù†Ø§ ÛŒØ§ Ø³Ø§Ø¦Ø±Ù† Ø§ÛŒÙ… Ù¾ÛŒ ØªÚ¾Ø±ÛŒ (MP3) ÙØ§Ø¦Ù„ Ù…Ù†ØªØ®Ø¨ Ú©Ø± Ø³Ú©ØªÛ’Û”"
+    },
+    Hindi = {
+      title="à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿ à¤ªà¥à¤°à¥‹à¤Ÿà¥‡à¤•à¥à¤Ÿà¤° 3.0", use_sp="à¤ªà¥à¤°à¥‹à¤Ÿà¥‡à¤•à¥à¤Ÿà¤° à¤šà¤¾à¤²à¥‚ à¤•à¤°à¥‡à¤‚", sets="à¤¸à¥‡à¤Ÿà¤¿à¤‚à¤—à¥à¤¸", ex="à¤¬à¤‚à¤¦ à¤•à¤°à¥‡à¤‚", ab="à¤à¤ª à¤•à¥€ à¤œà¤¾à¤¨à¤•à¤¾à¤°à¥€", 
+      new_feat="à¤¨à¤ à¤«à¥€à¤šà¤°à¥à¤¸",
+      new_feat_btn="à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿ à¤ªà¥à¤°à¥‹à¤Ÿà¥‡à¤•à¥à¤Ÿà¤° à¤•à¥‡ à¤¨à¤ à¤«à¥€à¤šà¤°à¥à¤¸",
+      s_en="à¤†à¤ªà¤•à¤¾ à¤¸à¤¿à¤¸à¥à¤Ÿà¤® à¤…à¤¬ à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤¹à¥ˆà¥¤", 
+      s_dis="à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤…à¤•à¥à¤·à¤®à¥¤", 
+      snd_al="à¤§à¥à¤µà¤¨à¤¿ à¤…à¤²à¤°à¥à¤Ÿ", vib_al="à¤•à¤‚à¤ªà¤¨ à¤…à¤²à¤°à¥à¤Ÿ", 
+      max_v="à¤…à¤§à¤¿à¤•à¤¤à¤® à¤µà¥‰à¤²à¥à¤¯à¥‚à¤® à¤²à¥‰à¤•", 
+      use_lock="à¤²à¥‰à¤• à¤¸à¥à¤•à¥à¤°à¥€à¤¨ à¤ªà¤° à¤‰à¤ªà¤¯à¥‹à¤— à¤•à¤°à¥‡à¤‚", 
+      chg_p="à¤šà¤¾à¤°à¥à¤œà¤¿à¤‚à¤— à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤•à¤¾ à¤‰à¤ªà¤¯à¥‹à¤— à¤•à¤°à¥‡à¤‚", 
+      vol_chn="à¤µà¥‰à¤²à¥à¤¯à¥‚à¤® à¤šà¥ˆà¤¨à¤²", vol_med="à¤®à¥€à¤¡à¤¿à¤¯à¤¾", vol_rng="à¤°à¤¿à¤‚à¤—à¤Ÿà¥‹à¤¨", vol_alm="à¤…à¤²à¤¾à¤°à¥à¤®", 
+      chg_lng="à¤­à¤¾à¤·à¤¾ à¤¬à¤¦à¤²à¥‡à¤‚", 
+      chg_pwd="à¤ªà¤¿à¤¨ à¤¬à¤¦à¤²à¥‡à¤‚", 
+      save="à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤•à¤°à¥‡à¤‚", 
+      ok="à¤ à¥€à¤• à¤¹à¥ˆ", wrg="à¤—à¤²à¤¤ à¤ªà¤¿à¤¨", set_p="à¤ªà¤¿à¤¨ à¤¸à¥‡à¤Ÿ à¤•à¤°à¥‡à¤‚", ent_p="à¤ªà¤¿à¤¨ à¤¦à¤°à¥à¤œ à¤•à¤°à¥‡à¤‚", 
+      p_cls="à¤†à¤ªà¤•à¤¾ à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿ à¤ªà¥à¤°à¥‹à¤Ÿà¥‡à¤•à¥à¤Ÿà¤° à¤…à¤¬ à¤¬à¤‚à¤¦ à¤¹à¥‹ à¤—à¤¯à¤¾ à¤¹à¥ˆà¥¤", 
+      prox_warn="à¤¸à¥‡à¤‚à¤¸à¤° à¤¸à¥‡ à¤¹à¤¾à¤¥ à¤¹à¤Ÿà¤¾à¤!", 
+      chg_en="à¤šà¤¾à¤°à¥à¤œà¤¿à¤‚à¤— à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤ªà¥à¤°à¤£à¤¾à¤²à¥€ à¤¶à¥à¤°à¥‚ à¤•à¥€ à¤—à¤ˆà¥¤", 
+      chg_unl="à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤…à¤•à¥à¤·à¤® à¤•à¥€ à¤—à¤ˆà¥¤", 
+      sel_ln="à¤­à¤¾à¤·à¤¾ à¤šà¥à¤¨à¥‡à¤‚", f_autoact="à¤‰à¤ªà¤¯à¥‹à¤— à¤¨ à¤¹à¥‹à¤¨à¥‡ à¤ªà¤° à¤¸à¥à¤µà¤¤à¤ƒ à¤¸à¤•à¥à¤°à¤¿à¤¯", sel_dur="à¤…à¤µà¤§à¤¿ à¤šà¥à¤¨à¥‡à¤‚",
+      cust_snd_sw="à¤•à¤¸à¥à¤Ÿà¤® à¤§à¥à¤µà¤¨à¤¿ à¤•à¤¾ à¤‰à¤ªà¤¯à¥‹à¤— à¤•à¤°à¥‡à¤‚", cust_snd_btn="à¤•à¤¸à¥à¤Ÿà¤® à¤†à¤¡à¤¿à¤¯à¥‹ à¤«à¤¼à¤¾à¤‡à¤² à¤šà¥à¤¨à¥‡à¤‚", sel_fx_btn="à¤§à¥à¤µà¤¨à¤¿ à¤ªà¥à¤°à¤­à¤¾à¤µ à¤šà¥à¤¨à¥‡à¤‚",
+      
+      -- Hindi About Text
+      abt_text="à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿ à¤ªà¥à¤°à¥‹à¤Ÿà¥‡à¤•à¥à¤Ÿà¤° 3.0 à¤•à¥à¤¯à¤¾ à¤¹à¥ˆ?\nà¤¯à¤¹ à¤à¤• à¤†à¤§à¥à¤¨à¤¿à¤• à¤¹à¤¾à¤°à¥à¤¡à¤µà¥‡à¤¯à¤°-à¤‡à¤‚à¤Ÿà¤°à¤²à¥‰à¤•à¥à¤¡ à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤à¤ª à¤¹à¥ˆ à¤œà¥‹ à¤†à¤ªà¤•à¥‡ à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿà¤«à¥‹à¤¨ à¤•à¥‹ à¤šà¥‹à¤°à¥€, à¤…à¤¨à¤§à¤¿à¤•à¥ƒà¤¤ à¤‰à¤ªà¤¯à¥‹à¤— à¤”à¤° à¤­à¥Œà¤¤à¤¿à¤• à¤›à¥‡à¤¡à¤¼à¤›à¤¾à¤¡à¤¼ à¤¸à¥‡ à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤°à¤–à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤¬à¤¨à¤¾à¤¯à¤¾ à¤—à¤¯à¤¾ à¤¹à¥ˆà¥¤\n\nà¤¯à¤¹ à¤•à¥ˆà¤¸à¥‡ à¤•à¤¾à¤® à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆ?\n1. à¤®à¥‹à¤¶à¤¨ à¤¡à¤¿à¤Ÿà¥‡à¤•à¥à¤¶à¤¨ (à¤—à¤¤à¤¿ à¤•à¤¾ à¤ªà¤¤à¤¾ à¤²à¤—à¤¾à¤¨à¤¾): à¤¯à¤¹ à¤«à¥‹à¤¨ à¤•à¥‡ à¤†à¤‚à¤¤à¤°à¤¿à¤• à¤à¤•à¥à¤¸à¥‡à¤²à¥‡à¤°à¥‹à¤®à¥€à¤Ÿà¤° à¤¸à¥‡à¤‚à¤¸à¤° à¤•à¤¾ à¤‰à¤ªà¤¯à¥‹à¤— à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆà¥¤ à¤¯à¤¦à¤¿ à¤•à¥‹à¤ˆ à¤†à¤ªà¤•à¥‡ à¤«à¥‹à¤¨ à¤•à¥‹ à¤‰à¤ à¤¾à¤¤à¤¾ à¤¹à¥ˆ à¤¯à¤¾ à¤¹à¤¿à¤²à¤¾à¤¤à¤¾ à¤¹à¥ˆ, à¤¤à¥‹ à¤…à¤²à¤¾à¤°à¥à¤® à¤¤à¥à¤°à¤‚à¤¤ à¤¬à¤œà¤¤à¤¾ à¤¹à¥ˆà¥¤\n2. à¤ªà¥à¤°à¥‰à¤•à¥à¤¸à¤¿à¤®à¤¿à¤Ÿà¥€ à¤¶à¥€à¤²à¥à¤¡ (à¤¨à¤¿à¤•à¤Ÿà¤¤à¤¾ à¤•à¤µà¤š): à¤¯à¤¹ à¤ªà¥à¤°à¥‰à¤•à¥à¤¸à¤¿à¤®à¤¿à¤Ÿà¥€ à¤¸à¥‡à¤‚à¤¸à¤° à¤•à¥€ à¤¨à¤¿à¤—à¤°à¤¾à¤¨à¥€ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆà¥¤ à¤¯à¤¦à¤¿ à¤•à¥‹à¤ˆ à¤«à¥‹à¤¨ à¤•à¥‹ à¤œà¥‡à¤¬ à¤¸à¥‡ à¤¨à¤¿à¤•à¤¾à¤²à¤¨à¥‡ à¤•à¥€ à¤•à¥‹à¤¶à¤¿à¤¶ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆ, à¤¤à¥‹ à¤¯à¤¹ à¤…à¤²à¤°à¥à¤Ÿ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆà¥¤\n3. Charge Interlock: à¤¯à¤¦à¤¿ à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤ªà¤¿à¤¨ à¤¡à¤¾à¤²à¥‡ à¤¬à¤¿à¤¨à¤¾ à¤šà¤¾à¤°à¥à¤œà¤° à¤¨à¤¿à¤•à¤¾à¤²à¤¾ à¤œà¤¾à¤¤à¤¾ à¤¹à¥ˆ, à¤¤à¥‹ à¤‡à¤®à¤°à¤œà¥‡à¤‚à¤¸à¥€ à¤…à¤²à¤¾à¤°à¥à¤® à¤¬à¤œà¤¨à¤¾ à¤¶à¥à¤°à¥‚ à¤¹à¥‹ à¤œà¤¾à¤¤à¤¾ à¤¹à¥ˆà¥¤\n\nà¤†à¤ªà¤•à¤¾ à¤¸à¥à¤¥à¤¾à¤¯à¥€, à¤µà¥à¤¯à¤•à¥à¤¤à¤¿à¤—à¤¤ à¤¡à¤¿à¤œà¤¿à¤Ÿà¤² à¤¬à¥‰à¤¡à¥€à¤—à¤¾à¤°à¥à¤¡à¥¤",
+      
+      -- Hindi New Features Text
+      feat_text="â˜… à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿ à¤ªà¥à¤°à¥‹à¤Ÿà¥‡à¤•à¥à¤Ÿà¤° à¤•à¥‡ à¤¨à¤ à¤«à¥€à¤šà¤°à¥à¤¸ â˜…\n\n" ..
+                "1. à¤¸à¥à¤®à¤¾à¤°à¥à¤Ÿ à¤²à¥‰à¤•à¤†à¤‰à¤Ÿ à¤”à¤° à¤¬à¥à¤²à¥ˆà¤• à¤¸à¥à¤•à¥à¤°à¥€à¤¨:\n" ..
+                "3 à¤¬à¤¾à¤° à¤—à¤²à¤¤ à¤ªà¤¿à¤¨ à¤¡à¤¾à¤²à¤¨à¥‡ à¤ªà¤° à¤¸à¥à¤•à¥à¤°à¥€à¤¨ à¤ªà¥‚à¤°à¥€ à¤¤à¤°à¤¹ à¤¸à¥‡ à¤•à¤¾à¤²à¥€ à¤¹à¥‹ à¤œà¤¾à¤à¤—à¥€ à¤”à¤° à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤•à¥‡ à¤²à¤¿à¤ 30 à¤¸à¥‡à¤•à¤‚à¤¡ à¤•à¤¾ à¤Ÿà¤¾à¤‡à¤®à¤° à¤¶à¥à¤°à¥‚ à¤¹à¥‹ à¤œà¤¾à¤à¤—à¤¾à¥¤\n\n" ..
+                "2. à¤¡à¤¾à¤¯à¤¨à¥‡à¤®à¤¿à¤• à¤²à¥‰à¤• à¤†à¤‡à¤•à¤¨ (ðŸ”’):\n" ..
+                "à¤•à¤¾à¤²à¥€ à¤¸à¥à¤•à¥à¤°à¥€à¤¨ à¤•à¥‡ à¤¬à¥€à¤š à¤®à¥‡à¤‚ à¤à¤• à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤²à¥‰à¤• à¤¦à¤¿à¤–à¤¾à¤ˆ à¤¦à¥‡à¤—à¤¾ à¤œà¥‹ à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤•à¥‹ à¤®à¤œà¤¬à¥‚à¤¤ à¤¬à¤¨à¤¾à¤¤à¤¾ à¤¹à¥ˆ à¤”à¤° à¤²à¤¾à¤‡à¤µ à¤¸à¥‡à¤•à¤‚à¤¡à¥à¤¸ à¤ªà¥à¤°à¤¦à¤°à¥à¤¶à¤¿à¤¤ à¤•à¤°à¤¤à¤¾ à¤¹à¥ˆà¥¤\n\n" ..
+                "3. à¤‘à¤Ÿà¥‹-à¤à¤•à¥à¤Ÿà¤¿à¤µà¥‡à¤¶à¤¨:\n" ..
+                "à¤¯à¤¦à¤¿ à¤«à¥‹à¤¨ à¤•à¤¾ à¤‰à¤ªà¤¯à¥‹à¤— à¤¨à¤¹à¥€à¤‚ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ, à¤¤à¥‹ à¤¸à¥à¤°à¤•à¥à¤·à¤¾ à¤¸à¥à¤µà¤šà¤¾à¤²à¤¿à¤¤ à¤°à¥‚à¤ª à¤¸à¥‡ à¤†à¤ªà¤•à¥‡ à¤¦à¥à¤µà¤¾à¤°à¤¾ à¤¸à¥‡à¤Ÿ à¤•à¤¿à¤ à¤—à¤ à¤¸à¤®à¤¯ (1 à¤¸à¥‡ 5 à¤®à¤¿à¤¨à¤Ÿ) à¤•à¥‡ à¤¬à¤¾à¤¦ à¤šà¤¾à¤²à¥‚ à¤¹à¥‹ à¤œà¤¾à¤à¤—à¥€à¥¤\n\n" ..
+                "4. à¤¨à¤ à¤§à¥à¤µà¤¨à¤¿ à¤ªà¥à¤°à¤­à¤¾à¤µ:\n" ..
+                "à¤‡à¤¸à¤®à¥‡à¤‚ à¤•à¤ˆ à¤ªà¥à¤°à¤•à¤¾à¤° à¤•à¥‡ à¤¨à¤ à¤…à¤²à¤¾à¤°à¥à¤® à¤”à¤° à¤¸à¤¾à¤¯à¤°à¤¨ à¤œà¥‹à¤¡à¤¼à¥‡ à¤—à¤ à¤¹à¥ˆà¤‚ à¤œà¥ˆà¤¸à¥‡ à¤¡à¤¿à¤«à¤¼à¥‰à¤²à¥à¤Ÿ à¤…à¤²à¤¾à¤°à¥à¤®, à¤à¤®à¥à¤¬à¥à¤²à¥‡à¤‚à¤¸ à¤”à¤° à¤¡à¥‹à¤‚à¤Ÿ à¤Ÿà¤š à¤®à¤¾à¤ˆ à¤«à¥‹à¤¨à¥¤\n\n" ..
+                "5. à¤•à¤¸à¥à¤Ÿà¤® à¤‘à¤¡à¤¿à¤¯à¥‹:\n" ..
+                "à¤†à¤ª à¤…à¤ªà¤¨à¥€ à¤¸à¥à¤Ÿà¥‹à¤°à¥‡à¤œ à¤¸à¥‡ à¤…à¤ªà¤¨à¥€ à¤ªà¤¸à¤‚à¤¦ à¤•à¤¾ à¤•à¥‹à¤ˆ à¤­à¥€ MP3 à¤¸à¤¾à¤¯à¤°à¤¨ à¤¯à¤¾ à¤—à¤¾à¤¨à¤¾ à¤šà¥à¤¨ à¤¸à¤•à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤"
+    }
+  }
+  return T[lang] or T["English"]
+end
+
+local function applyOverlayFlags(dlg)
+  local window = dlg.getWindow()
+  window.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+  window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or 0x00080000)
+  window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or 0x00400000)
+  window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or 0x00200000)
+end
+
+local function stopPreview()
+  if previewPlayer ~= nil then
+    pcall(function()
+      previewPlayer.stop()
+      previewPlayer.release()
+    end)
+    previewPlayer = nil
+    currentPlayingIndex = nil
+  end
+end
+
+local function clearUiState()
+  stopPreview() 
+  if globalDialog ~= nil then
+    pcall(function() globalDialog.dismiss() end)
+    globalDialog = nil
+  end
+  _G.currentUiState = "NONE"
+  _G.isPinPadOpen = false
+end
+
+local function createManagedDialog(stateName)
+  if _G.currentUiState == stateName and globalDialog ~= nil then return nil end
+  clearUiState()
+  _G.currentUiState = stateName
+  globalDialog = LuaDialog(service)
+  globalDialog.setCancelable(false)
+  return globalDialog
+end
+
+local function getAndroidStreamType()
+  local channelName = _G.prefs.getString("selected_channel", "Media")
+  if channelName == "Alarm" then return AudioManager.STREAM_ALARM
+  elseif channelName == "Ringtone" then return AudioManager.STREAM_RING
+  else return AudioManager.STREAM_MUSIC end
+end
+
+local function acquireWake()
+  pcall(function()
+    if wakeLock == nil then
+      wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK or 1, "SmartProtector::GlobalSystemWake")
+      wakeLock.acquire()
+    end
+  end)
+end
+
+-- ==================== [AGGRESSIVE VOLUME HARD-LOCK LOOP] ====================
+local volEnforcerLoop = nil
+local function startHyperVolumeLock()
+  if volEnforcerLoop ~= nil then return end 
+  volEnforcerLoop = Runnable({
+    run = function()
+      if _G.isAlerting and _G.prefs.getBoolean("max_vol", false) then
+        local streamType = getAndroidStreamType()
+        pcall(function()
+          local maxVol = audioManager.getStreamMaxVolume(streamType)
+          local currentVol = audioManager.getStreamVolume(streamType)
+          if currentVol < maxVol then audioManager.setStreamVolume(streamType, maxVol, 0) end
+        end)
+        mainHandler.postDelayed(volEnforcerLoop, 50) 
+      else volEnforcerLoop = nil end
+    end
+  })
+  mainHandler.post(volEnforcerLoop)
+end
+
+-- ==================== [AUDIO HANDLER] ====================
+local function getValidSoundPath(fileName)
+  local primaryPath = soundFolderPath .. fileName
+  if File(primaryPath).exists() then return primaryPath end
+  local fallbackName = fileName:lower()
+  local fallbackPath = soundFolderPath .. fallbackName
+  if File(fallbackPath).exists() then return fallbackPath end
+  return nil
+end
+
+local function playAlert(active)
+  local channelName = _G.prefs.getString("selected_channel", "Media")
+  local streamType = getAndroidStreamType()
+  local streamAttr = AudioAttributes.USAGE_MEDIA
+  if channelName == "Alarm" then streamAttr = AudioAttributes.USAGE_ALARM 
+  elseif channelName == "Ringtone" then streamAttr = AudioAttributes.USAGE_NOTIFICATION_RINGTONE end
+
+  if active then
+    if _G.isAlerting then return end
+    stopPreview() 
+    _G.isAlerting = true
+    acquireWake()
+    
+    if _G.prefs.getBoolean("max_vol", false) then startHyperVolumeLock() end
+    
+    local finalSoundPath = defaultSoundPath
+    local savedFileName = _G.prefs.getString("selected_fx_filename", "")
+    
+    if savedFileName ~= "" then
+      local verifiedPath = getValidSoundPath(savedFileName)
+      if verifiedPath then finalSoundPath = verifiedPath end
+    elseif _G.prefs.getBoolean("use_custom_sound", false) then
+      local customPath = _G.prefs.getString("custom_sound_path", "")
+      if customPath ~= "" and File(customPath).exists() then finalSoundPath = customPath end
+    end
+    
+    if _G.prefs.getBoolean("snd_a", true) then 
+      pcall(function()
+        if _G.mediaPlayer ~= nil then _G.mediaPlayer.release() end
+        _G.mediaPlayer = MediaPlayer()
+        _G.mediaPlayer.setDataSource(finalSoundPath)
+        local audioAttributes = AudioAttributes.Builder().setUsage(streamAttr).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
+        _G.mediaPlayer.setAudioAttributes(audioAttributes)
+        _G.mediaPlayer.setLooping(true)
+        _G.mediaPlayer.prepare()
+        _G.mediaPlayer.start()
+      end)
+    end
+    if _G.prefs.getBoolean("vib_a", true) then vibrator.vibrate({0, 1000, 500}, 0) end
+  else
+    _G.isAlerting = false
+    if _G.mediaPlayer ~= nil then pcall(function() _G.mediaPlayer.stop(); _G.mediaPlayer.release() end) _G.mediaPlayer = nil end
+    vibrator.cancel()
+    if not _G.isSecEnabled and not _G.isChargingActive then
+      pcall(function() if wakeLock ~= nil and wakeLock.isHeld() then wakeLock.release(); wakeLock = nil end end)
+    end
+  end
+end
+
+-- ==================== [AUTO ACTIVE ENGINE LOGIC] ====================
+local function stopAutoActiveTimer()
+  if autoActiveRunnable ~= nil then
+    mainHandler.removeCallbacks(autoActiveRunnable)
+    autoActiveRunnable = nil
+  end
+end
+
+local function startAutoActiveTimer()
+  stopAutoActiveTimer()
+  if not _G.prefs.getBoolean("f_autoact_enabled", false) then return end
+  local minutes = _G.prefs.getInt("f_autoact_time", 1)
+  local delayMillis = minutes * 60 * 1000
+  
+  autoActiveRunnable = Runnable({
+    run = function()
+      if not _G.isSecEnabled and not _G.isAlerting then
+        bgSpeak("Security Activated")
+        _G.toggleSec(true, true) 
+      end
+    end
+  })
+  mainHandler.postDelayed(autoActiveRunnable, delayMillis)
+end
+
+_G.resetAutoActiveTimerOnTouch = function()
+  if _G.prefs.getBoolean("f_autoact_enabled", false) and not _G.isSecEnabled then
+    startAutoActiveTimer()
+  end
+end
+
+-- [SENSORS INTERLOCK LOOPS]
+_G.toggleSec = function(enable, silent)
+  local L = getL()
+  pcall(function()
+    if _G.m_listener then sensorManager.unregisterListener(_G.m_listener) end
+    if _G.p_listener then sensorManager.unregisterListener(_G.p_listener) end
+  end)
+  
+  if enable then
+    _G.isSecEnabled = true
+    acquireWake()
+    
+    _G.p_listener = SensorEventListener({
+      onSensorChanged = function(event)
+        if event.values[0] < event.sensor.getMaximumRange() then 
+          _G.isProximityBlocked = true
+          _G.currentReason = "proximity"
+          playAlert(true) 
+        else
+          _G.isProximityBlocked = false
+          if _G.currentReason == "proximity" then playAlert(false) end
+        end
+      end
+    })
+    
+    _G.m_listener = SensorEventListener({
+      onSensorChanged = function(event)
+        if _G.isAlerting and _G.currentReason == "motion" then return end
+        local g = math.sqrt(event.values[0]^2 + event.values[1]^2 + event.values[2]^2)
+        
+        if math.abs(g - 9.8) > 1.5 then 
+          _G.currentReason = "motion"
+          playAlert(true) 
+          if not _G.isProximityBlocked then _G.showPIN(false) end
+        end
+      end
+    })
+    
+    sensorManager.registerListener(_G.p_listener, sensorManager.getDefaultSensor(8), SensorManager.SENSOR_DELAY_FASTEST)
+    sensorManager.registerListener(_G.m_listener, sensorManager.getDefaultSensor(1), SensorManager.SENSOR_DELAY_FASTEST)
+    
+    if not silent then
+      local customLockCmd = _G.prefs.getString("custom_lock_command", "")
+      if customLockCmd ~= "" then bgSpeak(customLockCmd) else bgSpeak(L.s_en) end
+    end
+  else
+    _G.isSecEnabled = false
+    _G.isProximityBlocked = false
+    playAlert(false)
+    pcall(function() if wakeLock ~= nil and wakeLock.isHeld() then wakeLock.release(); wakeLock = nil end end)
+    
+    if not silent then
+      local customUnlockCmd = _G.prefs.getString("custom_unlock_command", "")
+      if customUnlockCmd ~= "" then bgSpeak(customUnlockCmd) else bgSpeak(L.s_dis) end
+    end 
+  end
+end
+
+-- ==================== [BLACK SCREEN LOCKOUT SCREEN WITH 30s TIMER] ====================
+local function startSecurityLockoutMode(isNewPinContext)
+  clearUiState()
+  bgSpeak("Security Lockout Active for 30 seconds.")
+  
+  local lockoutDialog = createManagedDialog("LOCKOUT")
+  if lockoutDialog == nil then return end
+  lockoutDialog.setTitle("System Locked")
+  
+  local blackLayout = LinearLayout(service).setOrientation(1).setGravity(Gravity.CENTER)
+  blackLayout.setBackgroundColor(0xFF000000) 
+  blackLayout.setPadding(40, 40, 40, 40)
+  
+  local iconView = TextView(service).setText("ðŸ”’").setTextSize(80).setGravity(Gravity.CENTER)
+  blackLayout.addView(iconView)
+  
+  local timerTxt = TextView(service).setText("30s").setTextSize(28).setTextColor(0xFFF44336)
+  timerTxt.setGravity(Gravity.CENTER).setPadding(0, 30, 0, 0)
+  blackLayout.addView(timerTxt)
+  
+  lockoutDialog.setView(blackLayout)
+  applyOverlayFlags(lockoutDialog)
+  
+  local window = lockoutDialog.getWindow()
+  window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+  lockoutDialog.show()
+  
+  local timeLeft = 30
+  local countdownRunnable = nil
+  
+  countdownRunnable = Runnable({
+    run = function()
+      timeLeft = timeLeft - 1
+      if timeLeft > 0 then
+        timerTxt.setText(timeLeft .. "s")
+        mainHandler.postDelayed(countdownRunnable, 1000)
+      else
+        wrongPinCounter = 0
+        clearUiState()
+        _G.showPIN(isNewPinContext)
+      end
+    end
+  })
+  mainHandler.postDelayed(countdownRunnable, 1000)
+end
+
+-- ==================== [PIN PAD CORE WITH LOCKOUT INTERLOCK] ====================
+_G.showPIN = function(isNew)
+  local L = getL()
+  if _G.isProximityBlocked and not isNew then return true end
+  
+  if wrongPinCounter >= 3 and not isNew then
+    startSecurityLockoutMode(isNew)
+    return true
+  end
+  
+  local passDialog = createManagedDialog("PIN")
+  if passDialog == nil then return true end 
+  _G.isPinPadOpen = true
+  
+  local ent = ""
+  passDialog.setTitle(isNew and L.set_p or L.ent_p)
+  local mainLay = LinearLayout(service).setOrientation(1).setGravity(Gravity.CENTER)
+  mainLay.setPadding(40, 40, 40, 40).setBackground(getUniqueBackground())
+  
+  local txt = TextView(service).setText(isNew and L.set_p or L.ent_p)
+  txt.setTextSize(25).setTextColor(0xFFFFFFFF).setPadding(0, 0, 0, 20)
+  mainLay.addView(txt)
+  
+  local grid = GridLayout(service).setColumnCount(3)
+  
+  local function handlePinSuccess()
+    if _G.isProximityBlocked then
+      bgSpeak(L.prox_warn)
+      ent = ""; txt.setText("")
+      return
+    end
+    wrongPinCounter = 0
+    clearUiState()
+    playAlert(false) 
+    if _G.currentReason == "charging" then
+      bgSpeak(L.chg_unl) 
+      _G.isChargingActive = false
+    else
+      acquireWake()
+      _G.toggleSec(true, true) 
+    end
+  end
+  
+  local function handleFirstRunRegistration()
+    _G.prefs.edit().putString("pass", ent).putBoolean("first_run_done", true).commit()
+    clearUiState()
+    mainHandler.post(Runnable({run = function() _G.showMainUI() end}))
+  end
+  
+  for _, v in ipairs({"1","2","3","4","5","6","7","8","9","C","0","OK"}) do
+    local b = Button(service).setText(v).setTextSize(18)
+    applyUniqueButtonTheme(b, 0xFF21324A)
+    
+    local params = GridLayout.LayoutParams()
+    params.setMargins(10, 10, 10, 10)
+    b.setLayoutParams(params)
+    
+    b.setOnClickListener(function()
+      if v == "C" then ent = ""; txt.setText("")
+      elseif v == "OK" then
+        if isNew and #ent >= 4 then handleFirstRunRegistration()
+        elseif not isNew and ent == _G.prefs.getString("pass", "0000") then handlePinSuccess()
+        elseif ent != "" then 
+          ent = ""; bgSpeak(L.wrg); txt.setText("")
+          if not isNew then
+            wrongPinCounter = wrongPinCounter + 1
+            if wrongPinCounter >= 3 then
+              startSecurityLockoutMode(isNew)
+            end
+          end
+        end
+      else 
+        ent = ent .. v 
+        txt.setText(string.rep("â— ", #ent))
+        if #ent == 4 then
+          if isNew then handleFirstRunRegistration()
+          else
+            if ent == _G.prefs.getString("pass", "0000") then handlePinSuccess()
+            else 
+              ent = ""; txt.setText(""); bgSpeak(L.wrg)
+              wrongPinCounter = wrongPinCounter + 1
+              if wrongPinCounter >= 3 then
+                startSecurityLockoutMode(isNew)
+              end
+            end
+          end
+        end
+      end
+      return true 
+    end)
+    grid.addView(b)
+  end
+  
+  mainLay.addView(grid)
+  passDialog.setView(mainLay)
+  applyOverlayFlags(passDialog)
+  passDialog.show()
+  return true
+end
+
+-- ==================== [SOUND EFFECT SELECTOR DIALOG WITH PREVIEW] ====================
+local function openSoundEffectSelector()
+  local fxDialog = createManagedDialog("FX_SELECTOR")
+  if fxDialog == nil then return end
+  fxDialog.setTitle("Select Sound Effect")
+  fxDialog.setCancelable(true)
+  
+  local scroll = ScrollView(service)
+  local mainLayout = LinearLayout(service).setOrientation(1).setPadding(30, 30, 30, 30).setBackground(getUniqueBackground())
+  
+  for index, item in ipairs(soundEffectsList) do
+    local rowLayout = LinearLayout(service).setOrientation(0).setGravity(Gravity.CENTER_VERTICAL).setPadding(0, 15, 0, 15)
+    
+    local btnSelect = Button(service)
+    btnSelect.setText(item.displayName)
+    btnSelect.setLayoutParams(LinearLayout.LayoutParams(0, -2, 1.0))
+    applyUniqueButtonTheme(btnSelect, 0xFF2196F3)
+    
+    btnSelect.setOnClickListener(function()
+      stopPreview() 
+      _G.prefs.edit()
+        .putString("selected_fx_display", item.displayName)
+        .putString("selected_fx_filename", item.fileName)
+        .putBoolean("use_custom_sound", false)
+        .commit()
+      
+      clearUiState()
+      bgSpeak("Sound changed to " .. item.displayName)
+      mainHandler.post(Runnable({run = function() _G.showSettings() end}))
+    end)
+    rowLayout.addView(btnSelect)
+    
+    local btnPreview = Button(service)
+    btnPreview.setText("Play Preview ðŸ”Š")
+    applyUniqueButtonTheme(btnPreview, 0xFF4CAF50)
+    
+    local pParams = LinearLayout.LayoutParams(-2, -2)
+    pParams.setMargins(10, 0, 0, 0)
+    btnPreview.setLayoutParams(pParams)
+    
+    btnPreview.setOnClickListener(function()
+      local targetPath = getValidSoundPath(item.fileName)
+      if not targetPath then
+        bgSpeak("File not found in folder: " .. item.displayName)
+        return
+      end
+      
+      if previewPlayer ~= nil then
+        pcall(function() previewPlayer.stop(); previewPlayer.release() end)
+        previewPlayer = nil
+        if currentPlayingIndex == index then
+          currentPlayingIndex = nil
+          return
+        end
+      end
+      
+      pcall(function()
+        previewPlayer = MediaPlayer()
+        previewPlayer.setDataSource(targetPath)
+        local streamType = getAndroidStreamType()
+        local streamAttr = AudioAttributes.USAGE_MEDIA
+        if _G.prefs.getString("selected_channel", "Media") == "Alarm" then streamAttr = AudioAttributes.USAGE_ALARM end
+        
+        local audioAttributes = AudioAttributes.Builder().setUsage(streamAttr).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
+        previewPlayer.setAudioAttributes(audioAttributes)
+        previewPlayer.setLooping(false) 
+        previewPlayer.prepare()
+        previewPlayer.start()
+        currentPlayingIndex = index
+      end)
+    end)
+    rowLayout.addView(btnPreview)
+    mainLayout.addView(rowLayout)
+  end
+  
+  local btnCancel = Button(service).setText("Cancel")
+  applyUniqueButtonTheme(btnCancel, 0xFFF44336)
+  btnCancel.setOnClickListener(function()
+    clearUiState()
+    _G.showSettings()
+  end)
+  mainLayout.addView(btnCancel)
+  
+  scroll.addView(mainLayout)
+  fxDialog.setView(scroll)
+  applyOverlayFlags(fxDialog)
+  fxDialog.show()
+end
+
+-- ==================== [CUSTOM FILE SELECTOR] ====================
+local function openCustomSoundPicker()
+  local currentPath = "/storage/emulated/0"
+  local pickerDialog = nil
+  
+  local function showFolderContents(path)
+    if pickerDialog != nil then pcall(function() pickerDialog.dismiss() end) end
+    pickerDialog = LuaDialog(service)
+    pickerDialog.setTitle("Select Audio File")
+    pickerDialog.setCancelable(true)
+    
+    local mainLayout = LinearLayout(service).setOrientation(1).setPadding(25, 25, 25, 25).setBackground(getUniqueBackground())
+    local pathTxt = TextView(service).setText(path).setTextSize(13).setPadding(0,0,0,15).setTextColor(0x88FFFFFF)
+    mainLayout.addView(pathTxt)
+    
+    local listView = ListView(service)
+    local items = {}
+    local fileObjects = {}
+    
+    if path ~= "/storage/emulated/0" then
+      table.insert(items, ".. (Go Back)")
+      table.insert(fileObjects, "BACK")
+    end
+    
+    local folder = File(path)
+    local filesList = folder.listFiles()
+    if filesList ~= nil then
+      for i = 0, #filesList - 1 do
+        local file = filesList[i]
+        if file.isDirectory() and not file.getName():find("^%.") then
+          table.insert(items, "Folder: " .. file.getName())
+          table.insert(fileObjects, file)
+        end
+      end
+      for i = 0, #filesList - 1 do
+        local file = filesList[i]
+        if file.isFile() then
+          local name = file.getName():lower()
+          if name:find("%.mp3$") or name:find("%.wav$") or name:find("%.ogg$") or name:find("%.m4a$") then
+            table.insert(items, "Audio: " .. file.getName())
+            table.insert(fileObjects, file)
+          end
+        end
+      end
+    end
+    
+    local adapter = ArrayAdapter(service, android.R.layout.simple_list_item_1, items)
+    listView.setAdapter(adapter)
+    
+    listView.setOnItemClickListener(AdapterView.OnItemClickListener({
+      onItemClick = function(parent, view, position, id)
+        local target = fileObjects[position + 1]
+        if target == "BACK" then
+          local parentFile = File(path).getParentFile()
+          if parentFile ~= nil then showFolderContents(parentFile.getAbsolutePath()) end
+        elseif target.isDirectory() then
+          showFolderContents(target.getAbsolutePath())
+        else
+          local selectedFilePath = target.getAbsolutePath()
+          _G.prefs.edit()
+            .putString("custom_sound_path", selectedFilePath)
+            .putBoolean("use_custom_sound", true)
+            .putString("selected_fx_filename", "") 
+            .commit()
+          pickerDialog.dismiss()
+          clearUiState()
+          bgSpeak("Custom sound updated successfully")
+          mainHandler.post(Runnable({run = function() _G.showSettings() end}))
+        end
+      end
+    }))
+    
+    mainLayout.addView(listView)
+    pickerDialog.setView(mainLayout)
+    pickerDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+    pickerDialog.show()
+  end
+  clearUiState()
+  showFolderContents(currentPath)
+end
+
+-- ==================== [LANGUAGE SELECT FIRST FLOW] ====================
+_G.showLanguageSelect = function(forceReset)
+  local L = getL()
+  local langDialog = createManagedDialog("LANG")
+  if langDialog == nil then return end
+  
+  langDialog.setTitle(L.sel_ln or "Select Language")
+  local lay = LinearLayout(service).setOrientation(1).setPadding(40, 40, 40, 40).setBackground(getUniqueBackground())
+  
+  local function proceedNextStep(langSelected)
+    _G.prefs.edit().putString("lang", langSelected).commit()
+    clearUiState()
+    if forceReset then 
+      _G.showSettings() 
+    else 
+      mainHandler.post(Runnable({run = function() _G.showPIN(true) end}))
+    end
+  end
+
+  local bEn = Button(service).setText("English")
+  applyUniqueButtonTheme(bEn)
+  bEn.setOnClickListener(function() proceedNextStep("English") end)
+  
+  local bUr = Button(service).setText("Ø§Ø±Ø¯Ùˆ (Urdu)")
+  applyUniqueButtonTheme(bUr)
+  bUr.setOnClickListener(function() proceedNextStep("Urdu") end)
+  
+  local bHi = Button(service).setText("à¤¹à¤¿à¤‚à¤¦à¥€ (Hindi)")
+  applyUniqueButtonTheme(bHi)
+  bHi.setOnClickListener(function() proceedNextStep("Hindi") end)
+  
+  local layoutParams = LinearLayout.LayoutParams(-1, -2)
+  layoutParams.setMargins(0, 15, 0, 15)
+  bEn.setLayoutParams(layoutParams)
+  bUr.setLayoutParams(layoutParams)
+  bHi.setLayoutParams(layoutParams)
+  
+  lay.addView(bEn); lay.addView(bUr); lay.addView(bHi)
+  langDialog.setView(lay); applyOverlayFlags(langDialog); langDialog.show()
+end
+
+-- ==================== [NEW FEATURES BOX DIALOG] ====================
+function openNewFeaturesDialog()
+  local L = getL()
+  local featDialog = createManagedDialog("NEW_FEATURES")
+  if featDialog == nil then return end
+  featDialog.setTitle(L.new_feat)
+  
+  local scroll = ScrollView(service)
+  local lay = LinearLayout(service).setOrientation(1).setPadding(35, 35, 35, 35).setBackground(getUniqueBackground())
+  
+  local txt = TextView(service).setText(L.feat_text).setTextSize(15).setTextColor(0xFFFFFFFF)
+  txt.setLineSpacing(5, 1.2)
+  lay.addView(txt)
+  
+  local btn = Button(service).setText(L.ok)
+  applyUniqueButtonTheme(btn, 0xFF2196F3)
+  local bParams = LinearLayout.LayoutParams(-1, -2)
+  bParams.setMargins(0, 25, 0, 0)
+  btn.setLayoutParams(bParams)
+  
+  btn.setOnClickListener(function() clearUiState(); _G.showMainUI() end)
+  lay.addView(btn)
+  
+  scroll.addView(lay)
+  featDialog.setView(scroll); applyOverlayFlags(featDialog); featDialog.show()
+end
+
+-- ==================== [TAFSILI ABOUT BOX DIALOG WITH NEW FEATURES INTERLOCK] ====================
+function openAboutApp()
+  local L = getL()
+  local aboutDialog = createManagedDialog("ABOUT")
+  if aboutDialog == nil then return end
+  aboutDialog.setTitle(L.ab)
+  
+  local scroll = ScrollView(service)
+  local lay = LinearLayout(service).setOrientation(1).setPadding(35, 35, 35, 35).setBackground(getUniqueBackground())
+  
+  local txt = TextView(service).setText(L.abt_text).setTextSize(15).setTextColor(0xFFFFFFFF)
+  txt.setLineSpacing(5, 1.2) 
+  lay.addView(txt)
+  
+  -- 1. NEW FEATURES BUTTON (PLACED BEFORE OK BUTTON AS REQUESTED)
+  local btnNewFeatInAbout = Button(service).setText(L.new_feat_btn)
+  applyUniqueButtonTheme(btnNewFeatInAbout, 0xFF9C27B0) 
+  local nfParams = LinearLayout.LayoutParams(-1, -2)
+  nfParams.setMargins(0, 30, 0, 10)
+  btnNewFeatInAbout.setLayoutParams(nfParams)
+  btnNewFeatInAbout.setOnClickListener(function()
+    openNewFeaturesDialog()
+  end)
+  lay.addView(btnNewFeatInAbout)
+  
+  -- 2. OK BUTTON
+  local btnOk = Button(service).setText(L.ok)
+  applyUniqueButtonTheme(btnOk, 0xFF4CAF50) 
+  local okParams = LinearLayout.LayoutParams(-1, -2)
+  okParams.setMargins(0, 10, 0, 0)
+  btnOk.setLayoutParams(okParams)
+  btnOk.setOnClickListener(function() clearUiState(); _G.showMainUI() end)
+  lay.addView(btnOk)
+  
+  scroll.addView(lay)
+  aboutDialog.setView(scroll); applyOverlayFlags(aboutDialog); aboutDialog.show()
+end
+
+function openChannelSelector()
+  local L = getL()
+  local channelDialog = createManagedDialog("CHANNEL")
+  if channelDialog == nil then return end
+  channelDialog.setTitle(L.vol_chn)
+  local lay = LinearLayout(service).setOrientation(1).setPadding(35, 35, 35, 35).setBackground(getUniqueBackground())
+  
+  local bAlarm = Button(service).setText(L.vol_alm)
+  applyUniqueButtonTheme(bAlarm)
+  bAlarm.setOnClickListener(function() _G.prefs.edit().putString("selected_channel", "Alarm").commit(); _G.showSettings() end)
+  
+  local bMedia = Button(service).setText(L.vol_med)
+  applyUniqueButtonTheme(bMedia)
+  bMedia.setOnClickListener(function() _G.prefs.edit().putString("selected_channel", "Media").commit(); _G.showSettings() end)
+  
+  local bRing = Button(service).setText(L.vol_rng)
+  applyUniqueButtonTheme(bRing)
+  bRing.setOnClickListener(function() _G.prefs.edit().putString("selected_channel", "Ringtone").commit(); _G.showSettings() end)
+  
+  local layoutParams = LinearLayout.LayoutParams(-1, -2)
+  layoutParams.setMargins(0, 15, 0, 15)
+  bAlarm.setLayoutParams(layoutParams)
+  bMedia.setLayoutParams(layoutParams)
+  bRing.setLayoutParams(layoutParams)
+  
+  lay.addView(bAlarm); lay.addView(bMedia); lay.addView(bRing)
+  channelDialog.setView(lay); applyOverlayFlags(channelDialog); channelDialog.show()
+end
+
+-- ==================== [AUTO ACTIVE DURATION DIALOG] ====================
+local function openAutoActiveDurationDialog(switchView)
+  local L = getL()
+  local durDialog = LuaDialog(service)
+  durDialog.setTitle(L.sel_dur)
+  durDialog.setCancelable(false)
+  local lay = LinearLayout(service).setOrientation(1).setPadding(35, 35, 35, 35).setBackground(getUniqueBackground())
+  
+  local function selectTime(mins)
+    _G.prefs.edit().putBoolean("f_autoact_enabled", true).putInt("f_autoact_time", mins).commit()
+    durDialog.dismiss()
+    bgSpeak("Auto active timer enabled")
+    startAutoActiveTimer()
+  end
+  
+  local layoutParams = LinearLayout.LayoutParams(-1, -2)
+  layoutParams.setMargins(0, 10, 0, 10)
+  
+  for m = 1, 5 do
+    local b = Button(service).setText(m .. " Min")
+    applyUniqueButtonTheme(b, 0xFF2196F3)
+    b.setLayoutParams(layoutParams)
+    b.setOnClickListener(function() selectTime(m) end)
+    lay.addView(b)
+  end
+  local bCancel = Button(service).setText("Cancel")
+  applyUniqueButtonTheme(bCancel, 0xFFF44336)
+  bCancel.setLayoutParams(layoutParams)
+  bCancel.setOnClickListener(function()
+    switchView.setChecked(false)
+    durDialog.dismiss()
+  end)
+  lay.addView(bCancel)
+  durDialog.setView(lay)
+  durDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+  durDialog.show()
+end
+
+-- ==================== [SETTINGS SCREEN] ====================
+_G.showSettings = function()
+  local L = getL()
+  local settingsDialog = createManagedDialog("SETTINGS")
+  if settingsDialog == nil then return end
+  settingsDialog.setTitle(L.sets)
+  
+  local activeFxName = _G.prefs.getString("selected_fx_display", "Alarm (Default)")
+  
+  local scroll = ScrollView(service)
+  local container = LinearLayout(service).setOrientation(1).setPadding(40, 40, 40, 40).setBackground(getUniqueBackground())
+  
+  local head1 = TextView(service).setText("Sounds & Alerts Settings")
+  head1.setTextColor(0xFF2196F3).setTextSize(16).setPadding(0, 10, 0, 10)
+  container.addView(head1)
+  
+  local btnSelectFx = Button(service).setText(L.sel_fx_btn .. "\n(" .. activeFxName .. ")")
+  applyUniqueButtonTheme(btnSelectFx)
+  container.addView(btnSelectFx)
+  
+  local sCustomSnd = Switch(service).setText(L.cust_snd_sw)
+  sCustomSnd.setChecked(_G.prefs.getBoolean("use_custom_sound", false))
+  container.addView(sCustomSnd)
+  
+  local btnPickSnd = Button(service).setText(L.cust_snd_btn)
+  applyUniqueButtonTheme(btnPickSnd, 0xFF607D8B)
+  container.addView(btnPickSnd)
+  
+  local sSnd = Switch(service).setText(L.snd_al)
+  sSnd.setChecked(_G.prefs.getBoolean("snd_a", true))
+  container.addView(sSnd)
+  
+  local sVib = Switch(service).setText(L.vib_al)
+  sVib.setChecked(_G.prefs.getBoolean("vib_a", true))
+  container.addView(sVib)
+  
+  local sMax = Switch(service).setText(L.max_v)
+  sMax.setChecked(_G.prefs.getBoolean("max_vol", false))
+  container.addView(sMax)
+  
+  local head2 = TextView(service).setText("Automation & Protection")
+  head2.setTextColor(0xFF2196F3).setTextSize(16).setPadding(0, 30, 0, 10)
+  container.addView(head2)
+  
+  local sAutoAct = Switch(service).setText(L.f_autoact)
+  sAutoAct.setChecked(_G.prefs.getBoolean("f_autoact_enabled", false))
+  container.addView(sAutoAct)
+  
+  local sUseLock = Switch(service).setText(L.use_lock)
+  sUseLock.setChecked(_G.prefs.getBoolean("auto_s", false))
+  container.addView(sUseLock)
+  
+  local sChgProv = Switch(service).setText(L.chg_p)
+  sChgProv.setChecked(_G.prefs.getBoolean("chg_p_enabled", false))
+  container.addView(sChgProv)
+  
+  local layoutMargins = LinearLayout.LayoutParams(-1, -2)
+  layoutMargins.setMargins(0, 12, 0, 12)
+  btnSelectFx.setLayoutParams(layoutMargins)
+  btnPickSnd.setLayoutParams(layoutMargins)
+  
+  local btnVolChn = Button(service).setText(L.vol_chn)
+  applyUniqueButtonTheme(btnVolChn)
+  btnVolChn.setLayoutParams(layoutMargins)
+  container.addView(btnVolChn)
+  
+  local btnChgLng = Button(service).setText(L.chg_lng)
+  applyUniqueButtonTheme(btnChgLng)
+  btnChgLng.setLayoutParams(layoutMargins)
+  container.addView(btnChgLng)
+  
+  local btnChgPwd = Button(service).setText(L.chg_pwd)
+  applyUniqueButtonTheme(btnChgPwd)
+  btnChgPwd.setLayoutParams(layoutMargins)
+  container.addView(btnChgPwd)
+  
+  local headCommand = TextView(service).setText("Set Your Screen Locking & Unlocking Command")
+  headCommand.setTextColor(0xFF2196F3).setTextSize(16).setPadding(0, 30, 0, 10)
+  container.addView(headCommand)
+  
+  local lblLockCmd = TextView(service).setText("Lock Screen Command:")
+  container.addView(lblLockCmd)
+  local etLockCmd = EditText(service)
+  etLockCmd.setText(_G.prefs.getString("custom_lock_command", ""))
+  etLockCmd.setHint("Leave empty for default speech")
+  container.addView(etLockCmd)
+  
+  local lblUnlockCmd = TextView(service).setText("Unlock Screen Command:")
+  container.addView(lblUnlockCmd)
+  local etUnlockCmd = EditText(service)
+  etUnlockCmd.setText(_G.prefs.getString("custom_unlock_command", ""))
+  etUnlockCmd.setHint("Leave empty for default speech")
+  container.addView(etUnlockCmd)
+  
+  local btnSave = Button(service).setText(L.save)
+  applyUniqueButtonTheme(btnSave, 0xFF4CAF50)
+  btnSave.setLayoutParams(layoutMargins)
+  container.addView(btnSave)
+  
+  scroll.addView(container)
+  settingsDialog.setView(scroll)
+  
+  btnVolChn.setOnClickListener(function() openChannelSelector() end)
+  btnChgLng.setOnClickListener(function() _G.showLanguageSelect(true) end)
+  btnChgPwd.setOnClickListener(function() _G.showPIN(true) end)
+  btnPickSnd.setOnClickListener(function() openCustomSoundPicker() end)
+  btnSelectFx.setOnClickListener(function() openSoundEffectSelector() end)
+  
+  sCustomSnd.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener({
+    onCheckedChanged = function(button, isChecked)
+      if isChecked then
+        _G.prefs.edit().putString("custom_sound_path", "").putString("selected_fx_filename", "").putString("selected_fx_display", "Custom Mode Active").commit()
+      else
+        _G.prefs.edit().putString("custom_sound_path", "").commit()
+      end
+    end
+  }))
+  
+  sAutoAct.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener({
+    onCheckedChanged = function(button, isChecked)
+      if isChecked then
+        if not _G.prefs.getBoolean("f_autoact_enabled", false) then openAutoActiveDurationDialog(sAutoAct) end
+      else
+        _G.prefs.edit().putBoolean("f_autoact_enabled", false).commit()
+        stopAutoActiveTimer()
+      end
+    end
+  }))
+  
+  btnSave.setOnClickListener(function() 
+    _G.prefs.edit()
+      .putBoolean("snd_a", sSnd.isChecked())
+      .putBoolean("vib_a", sVib.isChecked())
+      .putBoolean("max_vol", sMax.isChecked())
+      .putBoolean("auto_s", sUseLock.isChecked())
+      .putBoolean("chg_p_enabled", sChgProv.isChecked())
+      .putBoolean("f_autoact_enabled", sAutoAct.isChecked())
+      .putBoolean("use_custom_sound", sCustomSnd.isChecked())
+      .putString("custom_lock_command", tostring(etLockCmd.getText())) 
+      .putString("custom_unlock_command", tostring(etUnlockCmd.getText())) 
+      .commit()
+    
+    if sAutoAct.isChecked() then startAutoActiveTimer() else stopAutoActiveTimer() end
+    clearUiState()
+    _G.showMainUI() 
+  end)
+
+  applyOverlayFlags(settingsDialog)
+  settingsDialog.show()
+end
+
+-- ==================== [MAIN SCREEN WITH YOUR RE-ORDERED LAYOUT] ====================
+_G.showMainUI = function()
+  local L = getL()
+  local mainDialog = createManagedDialog("MAIN")
+  if mainDialog == nil then return true end
+  mainDialog.setTitle(L.title)
+  
+  local container = LinearLayout(service).setOrientation(1).setPadding(40, 40, 40, 40).setBackground(getUniqueBackground())
+  
+  local layoutMargins = LinearLayout.LayoutParams(-1, -2)
+  layoutMargins.setMargins(0, 15, 0, 15)
+  
+  -- 1. About App Button (Ø³Ø¨ Ø³Û’ Ù¾ÛÙ„Û’)
+  local btnMainAb = Button(service).setText(L.ab)
+  applyUniqueButtonTheme(btnMainAb, 0xFF607D8B)
+  btnMainAb.setLayoutParams(layoutMargins)
+  container.addView(btnMainAb)
+  
+  -- 2. Settings Button (Ø¯ÙˆØ³Ø±Û’ Ù†Ù…Ø¨Ø± Ù¾Ø±)
+  local btnMainSets = Button(service).setText(L.sets)
+  applyUniqueButtonTheme(btnMainSets, 0xFF2196F3)
+  btnMainSets.setLayoutParams(layoutMargins)
+  container.addView(btnMainSets)
+  
+  -- 3. Use Smart Protector Switch (ØªÛŒØ³Ø±Û’ Ù†Ù…Ø¨Ø± Ù¾Ø±)
+  local sw = Switch(service).setText(L.use_sp)
+  sw.setChecked(_G.isSecEnabled)
+  container.addView(sw)
+  
+  -- 4. Exit Button (Ø¢Ø®Ø± Ù…ÛŒÚº)
+  local btnMainEx = Button(service).setText(L.ex)
+  applyUniqueButtonTheme(btnMainEx, 0xFFF44336)
+  btnMainEx.setLayoutParams(layoutMargins)
+  container.addView(btnMainEx)
+  
+  btnMainSets.setOnClickListener(function() _G.showSettings() end)
+  btnMainAb.setOnClickListener(function() openAboutApp() end)
+  btnMainEx.setOnClickListener(function() local langL = getL(); clearUiState(); bgSpeak(langL.p_cls) end)
+  
+  sw.setOnCheckedChangeListener(CompoundButton.OnCheckedChangeListener({
+    onCheckedChanged = function(button, isChecked) _G.toggleSec(isChecked, false) end
+  }))
+  
+  mainDialog.setView(container)
+  applyOverlayFlags(mainDialog)
+  mainDialog.show()
+  return true
+end
+
+-- ==================== [REGISTERED BACKGROUND ENGINE] ====================
+pcall(function()
+  if _G.G_FP then service.unregisterReceiver(_G.G_FP); _G.G_FP = nil end
+end)
+
+_G.G_FP = LuaBroadcastReceiver(function(context, intent)
+  if intent == nil then return true end
+  local action = intent.getAction()
+  local L = getL()
+  _G.resetAutoActiveTimerOnTouch()
+  
+  if action == Intent.ACTION_SCREEN_OFF then
+    stopAutoActiveTimer()
+    if _G.prefs.getBoolean("auto_s", false) or _G.isSecEnabled then 
+      acquireWake()
+      local customLockCmd = _G.prefs.getString("custom_lock_command", "")
+      if customLockCmd ~= "" then bgSpeak(customLockCmd) else bgSpeak(L.s_en) end
+      mainHandler.postDelayed(Runnable({run = function() _G.toggleSec(true, true) end}), 450)
+    end
+
+  elseif action == Intent.ACTION_USER_PRESENT then
+    if _G.isSecEnabled then
+      _G.isSecEnabled = false
+      _G.isProximityBlocked = false
+      playAlert(false)
+      pcall(function()
+        if _G.m_listener then sensorManager.unregisterListener(_G.m_listener) end
+        if _G.p_listener then sensorManager.unregisterListener(_G.p_listener) end
+      end)
+      clearUiState()
+      local customUnlockCmd = _G.prefs.getString("custom_unlock_command", "")
+      if customUnlockCmd ~= "" then bgSpeak(customUnlockCmd) else bgSpeak(L.s_dis) end
+    end
+    startAutoActiveTimer()
+
+  elseif action == Intent.ACTION_POWER_CONNECTED then
+    if _G.prefs.getBoolean("chg_p_enabled", false) then
+      _G.isChargingActive = true
+      acquireWake()
+      bgSpeak(L.chg_en or "Charging protection system initiated.") 
+    end
+
+  elseif action == Intent.ACTION_POWER_DISCONNECTED then
+    if _G.prefs.getBoolean("chg_p_enabled", false) and _G.isChargingActive then
+      _G.currentReason = "charging"
+      acquireWake()
+      mainHandler.post(Runnable({
+        run = function()
+          playAlert(true)
+          _G.showPIN(false)
+        end
+      }))
+    end
+  end
+  return true
+end)
+
+local filter = IntentFilter()
+filter.addAction(Intent.ACTION_SCREEN_OFF)
+filter.addAction(Intent.ACTION_USER_PRESENT) 
+filter.addAction(Intent.ACTION_POWER_CONNECTED)
+filter.addAction(Intent.ACTION_POWER_DISCONNECTED)
+filter.setPriority(1000) 
+service.registerReceiver(_G.G_FP, filter)
+
+function onAccessibilityEvent(event)
+  if event ~= nil then _G.resetAutoActiveTimerOnTouch() end
+  return false
+end
+
+-- [BOOT SETUP]
+_G.boot = function()
+  initTts() 
+  wrongPinCounter = 0
+  
+  if not _G.prefs.getBoolean("master_reset_done_v45", false) then
+    _G.prefs.edit()
+      .putBoolean("snd_a", true)
+      .putBoolean("vib_a", true) 
+      .putBoolean("max_vol", false)
+      .putBoolean("auto_s", false)
+      .putBoolean("chg_p_enabled", false)
+      .putBoolean("f_autoact_enabled", false)
+      .putBoolean("use_custom_sound", false)
+      .putString("custom_sound_path", "")
+      .putString("selected_fx_display", "Alarm (Default)")
+      .putString("selected_fx_filename", "Loud Alarm Sound Effect(MP3_160K).mp3") 
+      .putInt("f_autoact_time", 1)
+      .putString("custom_lock_command", "")
+      .putString("custom_unlock_command", "")
+      .putBoolean("first_run_done", false) 
+      .putBoolean("master_reset_done_v45", true)
+      .commit()
+  end
+
+  bgSpeak("Welcome to smart protector version three point zero.") 
+  if _G.prefs.getBoolean("f_autoact_enabled", false) then startAutoActiveTimer() end
+
+  if not _G.prefs.getBoolean("first_run_done", false) then
+    _G.showLanguageSelect(false) 
+  else
+    _G.showMainUI()
+  end
+  return true
+end
+
+_G.boot()
